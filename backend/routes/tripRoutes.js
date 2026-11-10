@@ -7,6 +7,14 @@ import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+const isTripParticipant = (trip, userId) => {
+  const uid = userId.toString();
+  return (
+    trip.admin?.toString() === uid ||
+    (trip.members || []).some((m) => (m._id || m).toString() === uid)
+  );
+};
+
 // @desc    Get all trips for authenticated user
 // @route   GET /api/trips
 // @access  Private
@@ -44,6 +52,9 @@ router.get('/:id', protect, async (req, res) => {
 
     if (!trip) {
       return res.status(404).json({ message: 'Trip not found' });
+    }
+    if (!isTripParticipant(trip, req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized to access this trip' });
     }
 
     const expenses = await Expense.find({ tripId: trip._id })
@@ -102,6 +113,9 @@ router.post('/:id/members', protect, async (req, res) => {
     if (!trip) {
       return res.status(404).json({ message: 'Trip not found' });
     }
+    if (!isTripParticipant(trip, req.user._id)) {
+      return res.status(403).json({ message: 'Only trip participants can add members' });
+    }
 
     const userToAdd = await User.findOne({ email });
     if (!userToAdd) {
@@ -140,6 +154,9 @@ router.post('/:id/expenses', protect, async (req, res) => {
     if (!trip) {
       return res.status(404).json({ message: 'Trip not found' });
     }
+    if (!isTripParticipant(trip, req.user._id)) {
+      return res.status(403).json({ message: 'Only trip participants can add expenses' });
+    }
 
     const expense = await Expense.create({
       tripId: trip._id,
@@ -164,7 +181,14 @@ router.post('/:id/expenses', protect, async (req, res) => {
 // @access  Private
 router.delete('/:id/expenses/:expenseId', protect, async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.expenseId);
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+    if (!isTripParticipant(trip, req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized to delete expenses for this trip' });
+    }
+    const expense = await Expense.findOne({ _id: req.params.expenseId, tripId: trip._id });
     if (!expense) {
       return res.status(404).json({ message: 'Expense not found' });
     }
@@ -201,12 +225,16 @@ router.patch('/:id/status', protect, async (req, res) => {
 router.patch('/:id/notes', protect, async (req, res) => {
   const { notes } = req.body;
   try {
-    const trip = await Trip.findByIdAndUpdate(
-      req.params.id,
-      { notes },
-      { new: true }
-    );
-    res.json({ notes: trip.notes });
+    const existingTrip = await Trip.findById(req.params.id);
+    if (!existingTrip) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+    if (!isTripParticipant(existingTrip, req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized to update notes for this trip' });
+    }
+    existingTrip.notes = notes;
+    await existingTrip.save();
+    res.json({ notes: existingTrip.notes });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -220,6 +248,7 @@ router.post('/:id/waypoints', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
     trip.waypoints.push({ name, type: type || 'checkpoint', note: note || '', estimatedTime: estimatedTime || '' });
     await trip.save();
     res.status(201).json(trip.waypoints);
@@ -235,6 +264,7 @@ router.patch('/:id/waypoints/:wid/reached', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
     const wp = trip.waypoints.id(req.params.wid);
     if (!wp) return res.status(404).json({ message: 'Waypoint not found' });
     wp.reached = !wp.reached;
@@ -253,6 +283,7 @@ router.delete('/:id/waypoints/:wid', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
     trip.waypoints.pull({ _id: req.params.wid });
     await trip.save();
     res.json(trip.waypoints);
@@ -269,6 +300,7 @@ router.get('/:id/pois', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
 
     const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
     const activePois = (trip.pois || []).filter(p => new Date(p.timestamp).getTime() > fiveMinsAgo);
@@ -287,6 +319,7 @@ router.post('/:id/pois', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
 
     const newPoi = {
       type,
@@ -314,6 +347,7 @@ router.delete('/:id/pois/:poiId', protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ message: 'Trip not found' });
+    if (!isTripParticipant(trip, req.user._id)) return res.status(403).json({ message: 'Not authorized' });
 
     trip.pois.pull({ _id: req.params.poiId });
     await trip.save();

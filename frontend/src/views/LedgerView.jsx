@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import { useState, useEffect, useRef, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
 import { motion } from 'framer-motion';
-import { Receipt, ArrowRight, TrendingUp, MapPin } from 'lucide-react';
+import { Receipt, ArrowRight, MapPin } from 'lucide-react';
 import { AuthContext } from '../App';
 
 const LedgerView = () => {
@@ -15,31 +15,32 @@ const LedgerView = () => {
 
   const threeContainerRef = useRef(null);
 
-  useEffect(() => { fetchAllTrips(); }, []);
-
-  const fetchAllTrips = async () => {
-    try {
-      setLoading(true);
-      const tripsRes = await axios.get('/trips');
-      const tripList = tripsRes.data;
-
-      const withExpenses = await Promise.all(
-        tripList.map(async (trip) => {
-          try {
-            const res = await axios.get(`/trips/${trip._id}`);
-            return { ...trip, expenses: res.data.expenses || [] };
-          } catch {
-            return { ...trip, expenses: [] };
-          }
-        })
-      );
-      setTrips(withExpenses.filter(t => t.expenses.length > 0));
-    } catch (err) {
-      console.error('Ledger fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    let active = true;
+    const loadTrips = async () => {
+      try {
+        const tripsRes = await axios.get('/trips');
+        const tripList = tripsRes.data;
+        const withExpenses = await Promise.all(
+          tripList.map(async (trip) => {
+            try {
+              const res = await axios.get(`/trips/${trip._id}`);
+              return { ...trip, expenses: res.data.expenses || [] };
+            } catch {
+              return { ...trip, expenses: [] };
+            }
+          })
+        );
+        if (active) setTrips(withExpenses.filter(t => t.expenses.length > 0));
+      } catch (err) {
+        console.error('Ledger fetch error:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void loadTrips();
+    return () => { active = false; };
+  }, []);
 
   // Three.js 3D Grid Wave Data Visualization Background
   useEffect(() => {

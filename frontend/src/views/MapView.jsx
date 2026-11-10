@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Map, { Marker, Source, Layer } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { io } from 'socket.io-client';
-import { Navigation, Search, Crosshair, Layers, Compass, ArrowLeft, X, AlertTriangle, Wifi, Activity, Users, Locate, Battery } from 'lucide-react';
+import { Navigation, Search, Crosshair, Layers, Compass, ArrowLeft, X, AlertTriangle, Wifi, Activity, Users, Battery } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
@@ -187,6 +187,7 @@ const MapView = () => {
 
   // ── Upgraded features states
   const [pois,          setPois]          = useState([]); // Waze-style hazards
+  const [nowMs,         setNowMs]         = useState(() => Date.now());
   const [showCrewPanel, setShowCrewPanel] = useState(false);
   const [poiMenuOpen,   setPoiMenuOpen]   = useState(false);
   const [followRider,   setFollowRider]   = useState(false); // Follow-cam for selected rider
@@ -262,7 +263,9 @@ const MapView = () => {
   // Clean-up expired POIs periodically (5 minutes lifetime)
   useEffect(() => {
     const interval = setInterval(() => {
-      const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
+      const now = Date.now();
+      setNowMs(now);
+      const fiveMinsAgo = now - 5 * 60 * 1000;
       setPois((prev) => prev.filter(p => new Date(p.timestamp).getTime() > fiveMinsAgo));
     }, 10000);
     return () => clearInterval(interval);
@@ -274,14 +277,15 @@ const MapView = () => {
     const searchParams = new URLSearchParams(window.location.search);
     const activeTripId = tripId || searchParams.get('trip') || 'demo-trip-room';
 
-    const tempId = `${activeUser?.id || 'anon'}-${Date.now()}`;
+    const tsNow = new Date().getTime();
+    const tempId = `${activeUser?.id || 'anon'}-${tsNow}`;
     const newPOI = {
       id: tempId,
       type,
       lat: userLocation.latitude,
       lng: userLocation.longitude,
       reportedBy: activeUser?.name || 'Teammate',
-      timestamp: Date.now()
+      timestamp: tsNow
     };
 
     if (tripId && tripId !== 'live') {
@@ -392,6 +396,21 @@ const MapView = () => {
   }, [tripId]);
 
   const [locationError, setLocationError] = useState(null);
+
+  // ── 3. Fetch destination route whenever destination or userLocation set ───────
+  const refreshDestRoute = useCallback(async (lat, lng) => {
+    if (!destination || !lat || !lng) return;
+    try {
+      const result = await getDirections(lng, lat, destination.lng, destination.lat);
+      if (result) {
+        setDestRoute(result.routeGeoJSON);
+        setDestEta(result.etaStr);
+        setDestKm(result.km);
+        setDestArrival(result.arrivalStr);
+        setDestNextStep(result.nextStep);
+      }
+    } catch (e) { console.error(e); }
+  }, [destination]);
 
   // ── 2. Socket + GPS ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -505,7 +524,7 @@ const MapView = () => {
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
       );
     } else {
-      setLocationError('Geolocation not supported on this device');
+      queueMicrotask(() => setLocationError('Geolocation not supported on this device'));
     }
 
     return () => {
@@ -514,26 +533,21 @@ const MapView = () => {
     };
   }, []);
 
-  // ── 3. Fetch destination route whenever destination or userLocation set ───────
-  const refreshDestRoute = useCallback(async (lat, lng) => {
-    if (!destination || !lat || !lng) return;
-    try {
-      const result = await getDirections(lng, lat, destination.lng, destination.lat);
-      if (result) {
+  useEffect(() => {
+    if (!destination || !userLocation) return;
+    let active = true;
+    getDirections(userLocation.longitude, userLocation.latitude, destination.lng, destination.lat)
+      .then((result) => {
+        if (!active || !result) return;
         setDestRoute(result.routeGeoJSON);
         setDestEta(result.etaStr);
         setDestKm(result.km);
         setDestArrival(result.arrivalStr);
         setDestNextStep(result.nextStep);
-      }
-    } catch (e) { console.error(e); }
-  }, [destination]);
-
-  useEffect(() => {
-    if (destination && userLocation) {
-      refreshDestRoute(userLocation.latitude, userLocation.longitude);
-    }
-  }, [destination, userLocation?.latitude, userLocation?.longitude, refreshDestRoute]);
+      })
+      .catch((e) => console.error(e));
+    return () => { active = false; };
+  }, [destination, userLocation]);
 
   // ── 4. RECENTER in navigation mode (zoom 17, pitch 60, bearing = GPS heading) ─
   const recenterOnUser = () => {
@@ -727,8 +741,8 @@ const MapView = () => {
 
         {/* ── HAZARD/POI markers ── */}
         {pois.map((poi) => {
-          const timestampMs = poi.timestamp ? new Date(poi.timestamp).getTime() : Date.now();
-          const timeLeftMins = Math.max(0, Math.round((5 * 60 * 1000 - (Date.now() - timestampMs)) / 60000));
+          const timestampMs = poi.timestamp ? new Date(poi.timestamp).getTime() : nowMs;
+          const timeLeftMins = Math.max(0, Math.round((5 * 60 * 1000 - (nowMs - timestampMs)) / 60000));
           return (
             <Marker key={poi.id || poi._id} longitude={poi.lng} latitude={poi.lat} anchor="bottom">
               <div className="flex flex-col items-center select-none pointer-events-auto">
@@ -911,7 +925,7 @@ const MapView = () => {
                   <div className="text-xs text-gray-500 text-center py-6">No other riders on radar. Share this trip frequency to join up!</div>
                 ) : (
                   riders.map((r) => {
-                    const randomPing = Math.floor(Math.random() * 20) + 15; // mock ping latency 15-35ms
+                    const riderPing = 18 + ((String(r.userId || '').charCodeAt(0) || 4) % 15); // deterministic rider telemetry ping
                     return (
                       <div key={r.userId} className="bg-white/[0.03] border border-white/5 hover:border-white/10 p-3 rounded-2xl flex flex-col gap-2.5 transition-colors">
                         <div className="flex justify-between items-start">
@@ -922,8 +936,8 @@ const MapView = () => {
                             <div>
                               <h4 className="font-bold text-xs text-white">{r.name}</h4>
                               <div className="flex items-center gap-1 mt-0.5">
-                                <Wifi size={10} className={randomPing < 25 ? 'text-emerald-400' : 'text-amber-400'} />
-                                <span className="text-[8px] font-mono text-gray-400">Ping: {randomPing} ms</span>
+                                <Wifi size={10} className={riderPing < 25 ? 'text-emerald-400' : 'text-amber-400'} />
+                                <span className="text-[8px] font-mono text-gray-400">Ping: {riderPing} ms</span>
                               </div>
                             </div>
                           </div>

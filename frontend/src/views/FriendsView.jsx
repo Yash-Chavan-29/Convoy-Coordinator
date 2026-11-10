@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Search, Plus, Check, UserCheck, Bike, X } from 'lucide-react';
-import { AuthContext } from '../App';
 
 const FriendsView = () => {
-  const { user: currentUser } = useContext(AuthContext);
   const [friends,   setFriends]   = useState([]);
   const [allUsers,  setAllUsers]  = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -16,23 +14,18 @@ const FriendsView = () => {
 
   const threeContainerRef = useRef(null);
 
-  useEffect(() => { fetchData(); }, []);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [friendsRes, usersRes] = await Promise.all([
-        axios.get('/auth/friends'),
-        axios.get('/auth/users'),
-      ]);
-      setFriends(friendsRes.data);
-      setAllUsers(usersRes.data);
-    } catch (err) {
-      console.error('Friends fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+useEffect(() => {
+    let active = true;
+    Promise.all([axios.get('/auth/friends'), axios.get('/auth/users')])
+      .then(([friendsRes, usersRes]) => {
+        if (!active) return;
+        setFriends(friendsRes.data);
+        setAllUsers(usersRes.data);
+      })
+      .catch((err) => { console.error('Friends fetch error:', err); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   // Three.js Particle Star Sphere Background
   useEffect(() => {

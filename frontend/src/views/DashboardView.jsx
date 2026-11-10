@@ -96,19 +96,14 @@ const DashboardView = () => {
   const [formError,   setFormError]   = useState('');
   const [loadingForm, setLoadingForm] = useState(false);
 
-  useEffect(() => { fetchTrips(); }, []);
-
-  const fetchTrips = async () => {
-    try {
-      setLoading(true);
-      const res = await axios.get('/trips');
-      setTrips(res.data);
-    } catch (err) {
-      console.error('Error fetching trips:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+useEffect(() => {
+    let active = true;
+    axios.get('/trips')
+      .then((res) => { if (active) setTrips(res.data); })
+      .catch((err) => { console.error('Error fetching trips:', err); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   const handleCreateTrip = async (e) => {
     e.preventDefault();

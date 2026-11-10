@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import { useState, useEffect, useRef, useContext } from 'react';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthContext } from '../App';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Key, User, Shield, ArrowRight, HelpCircle } from 'lucide-react';
+import { Mail, Key, User, Shield, ArrowRight } from 'lucide-react';
 import axios from 'axios';
 
 const LoginView = () => {
@@ -16,7 +16,7 @@ const LoginView = () => {
   // Reset States
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const [, setOtpSent] = useState(false);
   
   // OAuth Simulation States
   const [oauthProvider, setOauthProvider] = useState(null); // 'Google' | 'GitHub' | 'Apple' | null
@@ -337,7 +337,7 @@ const LoginView = () => {
       } else {
         setError(res.message);
       }
-    } catch (err) {
+    } catch {
       setLoadingForm(false);
       setError('Connection failed. Is the server running?');
     }
@@ -427,7 +427,7 @@ const LoginView = () => {
           setOauthStep('input');
           alert(res.message);
         }
-      } catch (err) {
+      } catch {
         setOauthStep('input');
         alert('Authentication failed.');
       }

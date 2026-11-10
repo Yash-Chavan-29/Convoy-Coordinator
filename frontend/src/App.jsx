@@ -1,5 +1,6 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
 
@@ -54,35 +55,26 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || localStorage.getItem('convoyToken') || '');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('token') || localStorage.getItem('convoyToken')));
 
-  // Set default auth header if token exists
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      localStorage.setItem('token', token);
-      localStorage.setItem('convoyToken', token);
-      fetchUserProfile();
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-      localStorage.removeItem('token');
-      localStorage.removeItem('convoyToken');
-      localStorage.removeItem('convoyUser');
-      setUser(null);
-      setLoading(false);
-    }
-  }, [token]);
+  const logout = useCallback(() => {
+    setToken('');
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('convoyToken');
+    localStorage.removeItem('convoyUser');
+  }, []);
 
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     try {
       setLoading(true);
       const res = await axios.get('/auth/me');
       setUser(res.data);
       if (res.data) {
-        localStorage.setItem('convoyUser', JSON.stringify({ 
-          id: res.data._id, 
-          name: res.data.name, 
-          bikeModel: res.data.bikeModel 
+        localStorage.setItem('convoyUser', JSON.stringify({
+          id: res.data._id,
+          name: res.data.name,
+          bikeModel: res.data.bikeModel
         }));
       }
     } catch (err) {
@@ -91,7 +83,43 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [logout]);
+
+  // Set default auth header if token exists
+  useEffect(() => {
+    if (!token) {
+      delete axios.defaults.headers.common['Authorization'];
+      localStorage.removeItem('token');
+      localStorage.removeItem('convoyToken');
+      localStorage.removeItem('convoyUser');
+      return;
+    }
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    localStorage.setItem('token', token);
+    localStorage.setItem('convoyToken', token);
+    let cancelled = false;
+    axios.get('/auth/me')
+      .then((res) => {
+        if (cancelled) return;
+        setUser(res.data);
+        if (res.data) {
+          localStorage.setItem('convoyUser', JSON.stringify({
+            id: res.data._id,
+            name: res.data.name,
+            bikeModel: res.data.bikeModel
+          }));
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Fetch profile error:', err);
+        logout();
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [token, logout]);
 
   const login = async (email, password) => {
     try {
@@ -163,14 +191,6 @@ export const AuthProvider = ({ children }) => {
         message: err.response?.data?.message || 'Google login failed. Please try again.'
       };
     }
-  };
-
-  const logout = () => {
-    setToken('');
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('convoyToken');
-    localStorage.removeItem('convoyUser');
   };
 
   const refreshUser = async () => {

@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import { useState, useEffect, useRef, useContext } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthContext } from '../App';
 import {
-  ArrowLeft, MapPin, Calendar, CreditCard, Trash2,
-  Users, UserPlus, DollarSign, Compass, Activity,
-  ShieldAlert, Plus, Fuel, Coffee, Bed, Flag, MoreHorizontal,
-  CheckCircle2, Circle, ChevronDown, ChevronUp, Edit3,
-  Navigation, AlertTriangle, X, Send, Radio
+  ArrowLeft, MapPin, CreditCard, Trash2,
+  UserPlus, DollarSign,
+  ShieldAlert, Plus,
+  CheckCircle2, Circle,
+  Navigation, AlertTriangle, X
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 
@@ -72,7 +72,7 @@ const TripDetailView = () => {
   const [wpLoading,    setWpLoading]    = useState(false);
 
   // Members
-  const [showMemberModal, setShowMemberModal] = useState(false);
+  const [, setShowMemberModal] = useState(false);
   const [memberEmail,     setMemberEmail]     = useState('');
   const [memberError,     setMemberError]     = useState('');
   const [loadingMember,   setLoadingMember]   = useState(false);
@@ -145,7 +145,7 @@ const TripDetailView = () => {
     });
 
     return () => socketRef.current?.disconnect();
-  }, [id]);
+  }, [id, user?._id]);
 
   // ── Real SOS Handler ───────────────────────────────────────────────────────
   const handleSOS = async () => {
@@ -163,7 +163,7 @@ const TripDetailView = () => {
         );
       });
       if (lat) setSosLocation({ lat, lng });
-    } catch {}
+    } catch (err) { console.warn('Ignored error:', err); }
 
     // 2. Play SOS alarm
     playAlarm('sos');
@@ -202,27 +202,27 @@ const TripDetailView = () => {
   useEffect(() => () => clearInterval(sosTimerRef.current), []);
 
   // ─── Load trip ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetchTripDetails();
-  }, [id]);
-
-  const fetchTripDetails = async () => {
-    try {
-      setLoading(true);
-      const res = await axios.get(`/trips/${id}`);
-      setTrip(res.data.trip);
-      setExpenses(res.data.expenses);
-      setNotes(res.data.trip.notes || '');
-      if (res.data.trip) {
-        setExpensePayer(user._id);
-        setExpenseSplit(res.data.trip.members.map(m => m._id));
-      }
-    } catch (err) {
-      setError('Failed to fetch convoy details.');
-    } finally {
-      setLoading(false);
-    }
-  };
+useEffect(() => {
+    let active = true;
+    axios.get(`/trips/${id}`)
+      .then((res) => {
+        if (!active) return;
+        setTrip(res.data.trip);
+        setExpenses(res.data.expenses);
+        setNotes(res.data.trip.notes || '');
+        if (res.data.trip) {
+          setExpensePayer(user?._id || '');
+          setExpenseSplit(res.data.trip.members.map(m => m._id));
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Trip details fetch failed:', err);
+        setError('Failed to fetch convoy details.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id, user]);
 
   // ─── Checklist persist ──────────────────────────────────────────────────────
   const toggleCheck = (itemId) => {
@@ -247,7 +247,7 @@ const TripDetailView = () => {
     clearTimeout(notesTimer.current);
     notesTimer.current = setTimeout(async () => {
       setNotesSaving(true);
-      try { await axios.patch(`/trips/${id}/notes`, { notes: val }); } catch {}
+      try { await axios.patch(`/trips/${id}/notes`, { notes: val }); } catch (err) { console.warn('Ignored error:', err); }
       setNotesSaving(false);
     }, 1200);
   };
