@@ -6,6 +6,16 @@ Designed for road trips, delivery fleets, and organized group travel, Convoy Coo
 
 ---
 
+## 📸 Preview & Live Walkthrough
+
+![Convoy Coordinator Screenshot](./docs/screenshot.png)
+
+![Convoy Coordinator Demo](./docs/demo.gif)
+
+> 🎬 **[Watch Full Demo Video (WebM)](./docs/demo.webm)**
+
+---
+
 ## 🌟 Key Features
 
 * **Live Real-Time Mapbox Tracking:** High-precision GPS marker updates via bidirectional WebSockets (`socket.io`).
